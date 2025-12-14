@@ -1,0 +1,34 @@
+name = "alfworld_green_agent"
+description = "The assessment hosting agent for ALFWorld benchmark."
+version = "0.1.0"
+
+defaultInputModes = ["text"]
+defaultOutputModes = ["text"]
+[capabilities]
+streaming = false
+
+[[skills]]
+id = "host_assess_alfworld"
+name = "ALFWorld assessment hosting"
+description = """
+Assess the interactive task completion ability of an agent in ALFWorld TextWorld environments.
+The agent is evaluated on household tasks like picking and placing objects, examining objects in light,
+cleaning and placing, heating and placing, cooling and placing, and picking two objects and placing.
+"""
+tags = ["green agent", "assessment hosting", "alfworld", "textworld", "embodied AI"]
+examples = ["""    
+Your task is to run ALFWorld assessment to test the agent located at:
+<white_agent_url>
+http://localhost:9002/
+</white_agent_url>
+You should use the following env configuration:
+<env_config>
+{
+  "env_type": "AlfredTWEnv",
+  "train_eval": "eval_out_of_distribution",
+  "num_games": 1,
+  "max_steps": 50,
+  "task_types": [1, 2, 3, 4, 5, 6]
+}
+</env_config>
+    """]
