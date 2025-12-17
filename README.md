@@ -52,11 +52,22 @@ The system consists of three components:
 # Clone or navigate to the project
 cd agentify-alfworld
 
+# Make an environment and activate it
+python3.13 -m venv venv
+source venv/bin/activate
+
 # Install dependencies
 pip install -e .
 
 # Or with uv
 uv pip install -e .
+
+# Run script
+Python src/scripts/patch_textworld.py
+
+# Download dataset
+Alfworld-download
+
 ```
 
 ## Quick Start
