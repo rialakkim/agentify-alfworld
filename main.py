@@ -2,6 +2,7 @@
 
 import typer
 import asyncio
+import os
 from typing import List, Optional
 
 from src.green_agent import start_green_agent
@@ -29,6 +30,21 @@ def white(
 ):
     """Start the white agent (target being tested)."""
     start_white_agent(host=host, port=port)
+
+
+@app.command()
+def run():
+    """Start an agent based on environment variables (ROLE, HOST, AGENT_PORT)."""
+    role = os.environ.get("ROLE", os.environ.get("role", "unspecified"))
+    host = os.environ.get("HOST", os.environ.get("host", "127.0.0.1"))
+    agent_port = int(os.environ.get("AGENT_PORT", os.environ.get("agent_port", "9000")))
+    
+    if role == "green":
+        start_green_agent(host=host, port=agent_port)
+    elif role == "white":
+        start_white_agent(host=host, port=agent_port)
+    else:
+        raise ValueError(f"Unknown role: {role}. Set 'role' environment variable to 'green' or 'white'.")
 
 
 @app.command()
