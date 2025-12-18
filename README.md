@@ -16,24 +16,10 @@ The system consists of three components:
 
 3. **Launcher Script**: Orchestrates the entire assessment workflow with a single command.
 
-```
-┌─────────────────┐         ┌─────────────────┐
-│   Green Agent   │◄───────►│   White Agent   │
-│  (Assessment)   │  A2A    │    (Target)     │
-│                 │ Protocol│                 │
-│  - ALFWorld Env │         │  - LLM-based    │
-│  - Metrics      │         │  - No ALFWorld  │
-│  - Evaluation   │         │    knowledge    │
-└─────────────────┘         └─────────────────┘
-        │
-        ▼
-   Assessment
-    Results
-```
 
 ## Prerequisites
 
-1. **Python 3.9+**
+1. **Python 3.13**
 
 2. **ALFWorld Data**: Download the ALFWorld game files:
    ```bash
@@ -68,6 +54,9 @@ Python src/scripts/patch_textworld.py
 # Download dataset
 Alfworld-download
 
+# Set your OpenAI API key 
+echo "OPENAI_API_KEY=your-key" > .env
+
 ```
 
 ## Quick Start
@@ -93,8 +82,8 @@ This will:
 # Run 5 games with max 30 steps each
 python main.py launch --num-games 5 --max-steps 30
 
-# Only test specific task types
-python main.py launch --task-types "1,2,3"
+# Run an even distrubution of games among the 6 task types with 2 in each
+python main.py launch --num-games-per-type 2
 
 # Use a different data split
 python main.py launch --train-eval eval_in_distribution
@@ -174,29 +163,50 @@ The assessment reports:
 - **Total Time**: Wall-clock time for assessment
 - **Per-game Results**: Detailed results for each game
 
+### Viewing Results
+
+All evaluation results are saved to timestamped log directories:
+
+```
+logs/
+└── run_20240101_120000/
+    ├── run_summary.json      # Aggregate metrics
+    ├── run_report.txt        # Human-readable report
+    ├── game_000.json         # Individual game results
+    ├── game_001.json
+    └── ...
+```
+
+---
+
 ## Project Structure
 
 ```
 agentify-alfworld/
-├── main.py                 # CLI entry point
-├── pyproject.toml          # Project configuration
+├── main.py                      # CLI entry point
+├── pyproject.toml               # Project configuration
 ├── configs/
-│   └── base_config.yaml    # ALFWorld configuration
+│   └── base_config.yaml         # ALFWorld configuration
 ├── src/
 │   ├── __init__.py
-│   ├── launcher.py         # Assessment launcher
+│   ├── launcher.py              # Assessment launcher
 │   ├── green_agent/
 │   │   ├── __init__.py
-│   │   ├── agent.py        # Green agent implementation
+│   │   ├── agent.py             # Green agent implementation
 │   │   └── alfworld_green_agent.toml
 │   ├── white_agent/
 │   │   ├── __init__.py
-│   │   └── agent.py        # White agent implementation
+│   │   └── agent.py             # White agent implementation
+│   ├── metrics/
+│   │   ├── __init__.py
+│   │   ├── behavior_metrics.py  # Behavioral metrics computation
+│   │   └── run_logger.py        # Logging utilities
 │   └── my_util/
-│       ├── __init__.py     # Tag parsing utilities
-│       └── my_a2a.py       # A2A client utilities
+│       ├── __init__.py
+│       └── my_a2a.py            # A2A client utilities
 └── README.md
 ```
+
 
 ## How It Works
 

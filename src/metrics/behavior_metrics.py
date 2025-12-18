@@ -244,6 +244,14 @@ class BehaviorMetrics:
                     i = j  # Skip past this cycle
                 else:
                     i += 1
+
+        deduped_cycles = {}
+        for cycle in cycles_detected:
+            idx = cycle["start_index"]
+            if idx not in deduped_cycles or cycle["length"] < deduped_cycles[idx]["length"]:
+                deduped_cycles[idx] = cycle
+
+        cycles_detected = list(deduped_cycles.values())
         
         # Calculate wasted steps (steps after first cycle occurrence)
         wasted_steps = 0
@@ -301,10 +309,9 @@ class BehaviorMetrics:
         
         Score components:
         - Task completion: 40% weight
-        - Efficiency (steps used): 20% weight
-        - No repetitions: 15% weight
-        - Cleanup behavior: 15% weight
-        - No cycles: 10% weight
+        - No repetitions: 20% weight
+        - Cleanup behavior: 20% weight
+        - No cycles: 20% weight
         
         Returns:
             Dict with overall score (0-100) and breakdown
@@ -312,33 +319,25 @@ class BehaviorMetrics:
         # Task completion score (0 or 40)
         completion_score = 40.0 if task_completed else 0.0
         
-        # Efficiency score (0-20) - fewer steps is better
-        if task_completed and max_steps > 0:
-            efficiency_ratio = 1.0 - (total_steps / max_steps)
-            efficiency_score = max(0, min(20, efficiency_ratio * 20 + 10))  # 10-20 for completing
-        else:
-            efficiency_score = 0.0
-        
-        # Repetition score (0-15) - fewer repetitions is better
+        # Repetition score (0-20) - fewer repetitions is better
         repetition_rate = repeated_metrics.get("repetition_rate", 0.0)
-        repetition_score = max(0, 15 * (1.0 - repetition_rate))
+        repetition_score = max(0, 20 * (1.0 - repetition_rate))
         
-        # Cleanup score (0-15) - higher cleanup rate is better
+        # Cleanup score (0-20) - higher cleanup rate is better
         cleanup_rate = cleanup_metrics.get("cleanup_rate", 1.0)
-        cleanup_score = 15 * cleanup_rate
+        cleanup_score = 20 * cleanup_rate
         
-        # Cycle score (0-10) - fewer cycles is better
+        # Cycle score (0-20) - fewer cycles is better
         cycle_rate = cycle_metrics.get("cycle_rate", 0.0)
-        cycle_score = max(0, 10 * (1.0 - cycle_rate))
+        cycle_score = max(0, 20 * (1.0 - cycle_rate))
         
-        overall_score = completion_score + efficiency_score + repetition_score + cleanup_score + cycle_score
+        overall_score = completion_score + repetition_score + cleanup_score + cycle_score
         
         return {
             "overall_score": round(overall_score, 2),
             "max_possible_score": 100,
             "breakdown": {
                 "completion_score": round(completion_score, 2),
-                "efficiency_score": round(efficiency_score, 2),
                 "repetition_score": round(repetition_score, 2),
                 "cleanup_score": round(cleanup_score, 2),
                 "cycle_score": round(cycle_score, 2),
