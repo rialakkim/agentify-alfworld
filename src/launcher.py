@@ -21,6 +21,8 @@ async def launch_evaluation(
     num_games: int = 1,
     max_steps: int = 1,
     task_types: list = None,
+    coverage_mode: str = "standard",
+    num_games_per_type: int = None,
 ):
     """
     Launch the complete ALFWorld evaluation workflow.
@@ -31,6 +33,8 @@ async def launch_evaluation(
         num_games: Number of games to evaluate
         max_steps: Maximum steps per game
         task_types: List of task type IDs to evaluate (1-6)
+        coverage_mode: Coverage mode ('standard', 'balanced', 'comprehensive', 'adversarial')
+        num_games_per_type: Number of games per task type (overrides num_games if set)
     """
     if task_types is None:
         task_types = [1, 2, 3, 4, 5, 6]
@@ -69,6 +73,8 @@ async def launch_evaluation(
         "num_games": num_games,
         "max_steps": max_steps,
         "task_types": task_types,
+        "coverage_mode": coverage_mode,
+        "num_games_per_type": num_games_per_type,
     }
     
     task_text = f"""
@@ -91,7 +97,21 @@ You should use the following env configuration:
     print("\n" + "=" * 60)
     print("ASSESSMENT RESULTS")
     print("=" * 60)
-    print(response)
+    
+    # Extract the actual text from the response
+    from a2a.types import SendMessageSuccessResponse, Message
+    from a2a.utils import get_text_parts
+    
+    if hasattr(response, 'root') and isinstance(response.root, SendMessageSuccessResponse):
+        result = response.root.result
+        if isinstance(result, Message):
+            text_parts = get_text_parts(result.parts)
+            for text in text_parts:
+                print(text)
+        else:
+            print(response)
+    else:
+        print(response)
 
     print("\n" + "-" * 60)
     print("Evaluation complete. Terminating agents...")

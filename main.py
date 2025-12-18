@@ -69,6 +69,14 @@ def launch(
         None,
         help="Comma-separated task type IDs (1-6), e.g., '1,2,3'. Default: all types"
     ),
+    coverage_mode: str = typer.Option(
+        "standard",
+        help="Coverage mode: 'standard', 'balanced', or 'comprehensive'"
+    ),
+    num_games_per_type: Optional[int] = typer.Option(
+        None,
+        help="Number of games per task type (overrides num_games if set)"
+    ),
 ):
     """Launch the complete evaluation workflow.
     
@@ -77,6 +85,11 @@ def launch(
     2. Sends the assessment task to the green agent
     3. Collects and displays results
     4. Terminates both agents
+    
+    Coverage Modes:
+    - standard: Auto-balanced distribution (default)
+    - balanced: Explicit per-task-type count
+    - comprehensive: Deep testing (5+ games per task type)
     """
     task_type_list = None
     if task_types:
@@ -89,6 +102,8 @@ def launch(
             num_games=num_games,
             max_steps=max_steps,
             task_types=task_type_list,
+            coverage_mode=coverage_mode,
+            num_games_per_type=num_games_per_type,
         )
     )
 

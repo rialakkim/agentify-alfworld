@@ -20,8 +20,12 @@ class ActionTracker:
     actions: List[str] = field(default_factory=list)
     observations: List[str] = field(default_factory=list)
     
-    # Track open/close state
-    opened_items: Dict[str, bool] = field(default_factory=dict)
+    # Track open/close state - list of currently open items (in order they were opened)
+    currently_open: List[str] = field(default_factory=list)
+    # Track successfully closed items (items that were opened then later closed)
+    correctly_closed: List[str] = field(default_factory=list)
+    # Track total opens for metrics
+    total_opens: int = 0
     
     def add_action(self, action: str, observation: str = ""):
         """Record an action and its resulting observation."""
@@ -30,7 +34,13 @@ class ActionTracker:
         self._update_open_close_state(action)
     
     def _update_open_close_state(self, action: str):
-        """Track items that have been opened/closed."""
+        """Track items that have been opened/closed.
+        
+        Logic:
+        - When "open X" is seen, add X to currently_open list
+        - When "close X" is seen, if X is in currently_open, remove it and add to correctly_closed
+        - At the end, currently_open contains items that were never closed
+        """
         action_lower = action.lower().strip()
         
         # Match "open X" or "close X" patterns
@@ -39,21 +49,34 @@ class ActionTracker:
         
         if open_match:
             item = open_match.group(1)
-            self.opened_items[item] = True  # True = currently open
+            self.currently_open.append(item)
+            self.total_opens += 1
         elif close_match:
             item = close_match.group(1)
-            if item in self.opened_items:
-                self.opened_items[item] = False  # False = closed
+            # Check if this item is currently open
+            if item in self.currently_open:
+                self.currently_open.remove(item)
+                self.correctly_closed.append(item)
     
     def get_unclosed_items(self) -> List[str]:
         """Return list of items that were opened but never closed."""
-        return [item for item, is_open in self.opened_items.items() if is_open]
+        return list(self.currently_open)
+    
+    def get_correctly_closed_count(self) -> int:
+        """Return count of items that were opened and then closed."""
+        return len(self.correctly_closed)
+    
+    def get_remaining_open_count(self) -> int:
+        """Return count of items still open at the end."""
+        return len(self.currently_open)
     
     def clear(self):
         """Reset the tracker for a new episode."""
         self.actions.clear()
         self.observations.clear()
-        self.opened_items.clear()
+        self.currently_open.clear()
+        self.correctly_closed.clear()
+        self.total_opens = 0
 
 
 class BehaviorMetrics:
@@ -119,28 +142,46 @@ class BehaviorMetrics:
     @staticmethod
     def calculate_cleanup_metric(tracker: ActionTracker) -> Dict[str, Any]:
         """
-        Calculate cleanup metric - how often the agent left things open.
+        Calculate cleanup metric - how often the agent properly closed what it opened.
         
-        Measures if the agent closes drawers, cabinets, etc. after opening them.
+        Logic:
+        - Counts total "open X" actions
+        - For each "close X", if X was previously opened and still open, it's a correct close
+        - remaining_open = items that were opened but never closed
+        - cleanup_rate = correct_close_count / total_opens
+        
+        Example: ["open fridge", "close fridge", "open drawer 1", "open drawer 2", "close drawer 1"]
+        - total_opens: 3 (fridge, drawer 1, drawer 2)
+        - correct_close_count: 2 (fridge was closed, drawer 1 was closed)
+        - remaining_open: 1 (drawer 2 still open)
+        - remaining_open_items: ["drawer 2"]
+        - cleanup_rate: 2/3 = 0.667
         
         Returns:
             Dict with:
-            - items_opened: total items opened
-            - items_closed: total items that were closed after opening
-            - unclosed_items: list of items left open
-            - cleanup_rate: percentage of opened items that were closed
+            - total_opens: total number of open actions
+            - correct_close_count: number of opens that were followed by correct closes
+            - remaining_open_count: number of items still open at the end
+            - remaining_open_items: list of items left open
+            - cleanup_rate: percentage of opened items that were correctly closed
         """
-        items_opened = len(tracker.opened_items)
-        unclosed_items = tracker.get_unclosed_items()
-        items_closed = items_opened - len(unclosed_items)
+        total_opens = tracker.total_opens
+        correct_close_count = tracker.get_correctly_closed_count()
+        remaining_open_count = tracker.get_remaining_open_count()
+        remaining_open_items = tracker.get_unclosed_items()
         
-        cleanup_rate = items_closed / items_opened if items_opened > 0 else 1.0
+        cleanup_rate = correct_close_count / total_opens if total_opens > 0 else 1.0
         
         return {
-            "items_opened": items_opened,
-            "items_closed": items_closed,
-            "unclosed_items": unclosed_items,
+            "total_opens": total_opens,
+            "correct_close_count": correct_close_count,
+            "remaining_open_count": remaining_open_count,
+            "remaining_open_items": remaining_open_items,
             "cleanup_rate": cleanup_rate,
+            # Keep old keys for backward compatibility
+            "items_opened": total_opens,
+            "items_closed": correct_close_count,
+            "unclosed_items": remaining_open_items,
         }
     
     @staticmethod

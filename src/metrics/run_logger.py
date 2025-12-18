@@ -126,7 +126,7 @@ class RunLogger:
         with open(report_file, 'w') as f:
             f.write(report)
         
-        print(f"\n📁 Logs saved to: {self.run_dir}")
+        print(f"\nLogs saved to: {self.run_dir}")
         return str(summary_file)
     
     def _generate_report(self, metrics: Dict[str, Any]) -> str:
@@ -155,7 +155,7 @@ class RunLogger:
         repeated = behavior.get("repeated_steps", {})
         lines.extend([
             "",
-            "📊 Repeated Steps:",
+            "Repeated Steps:",
             f"   Total repetitions: {repeated.get('avg_repeated_count', 0):.1f}",
             f"   Repetition rate: {repeated.get('avg_repetition_rate', 0):.1%}",
             f"   Max consecutive repeats: {repeated.get('max_repeat_length', 0)}",
@@ -165,9 +165,10 @@ class RunLogger:
         cleanup = behavior.get("cleanup", {})
         lines.extend([
             "",
-            "🧹 Cleanup Behavior:",
-            f"   Items opened: {cleanup.get('avg_items_opened', 0):.1f}",
-            f"   Items closed: {cleanup.get('avg_items_closed', 0):.1f}",
+            "Cleanup Behavior:",
+            f"   Total opens: {cleanup.get('avg_total_opens', 0):.1f}",
+            f"   Correctly closed: {cleanup.get('avg_correct_close_count', 0):.1f}",
+            f"   Remaining open: {cleanup.get('avg_remaining_open_count', 0):.1f}",
             f"   Cleanup rate: {cleanup.get('avg_cleanup_rate', 0):.1%}",
         ])
         
@@ -175,7 +176,7 @@ class RunLogger:
         cycles = behavior.get("cycles", {})
         lines.extend([
             "",
-            "🔄 Action Cycles:",
+            "Action Cycles:",
             f"   Cycles detected: {cycles.get('avg_cycles_detected', 0):.1f}",
             f"   Cycle rate: {cycles.get('avg_cycle_rate', 0):.1%}",
             f"   Wasted steps: {cycles.get('avg_wasted_steps', 0):.1f}",
@@ -185,7 +186,7 @@ class RunLogger:
         overall = behavior.get("overall", {})
         lines.extend([
             "",
-            "⭐ Overall Score:",
+            "Overall Score:",
             f"   Average Score: {overall.get('avg_score', 0):.1f}/100",
             f"   Grade: {overall.get('avg_grade', 'N/A')}",
         ])
@@ -230,8 +231,9 @@ class RunLogger:
         repetition_rates = []
         max_repeats = []
         
-        items_opened = []
-        items_closed = []
+        total_opens = []
+        correct_close_counts = []
+        remaining_open_counts = []
         cleanup_rates = []
         
         cycles_detected = []
@@ -255,9 +257,13 @@ class RunLogger:
             max_repeats.append(rep.get("max_repeat_length", 0))
             
             clean = bm.get("cleanup", {})
-            items_opened.append(clean.get("items_opened", 0))
-            items_closed.append(clean.get("items_closed", 0))
-            cleanup_rates.append(clean.get("cleanup_rate", 1.0))
+            game_total_opens = clean.get("total_opens", clean.get("items_opened", 0))
+            total_opens.append(game_total_opens)
+            correct_close_counts.append(clean.get("correct_close_count", clean.get("items_closed", 0)))
+            remaining_open_counts.append(clean.get("remaining_open_count", 0))
+            # Only include cleanup rate if the game actually had opens
+            if game_total_opens > 0:
+                cleanup_rates.append(clean.get("cleanup_rate", 0.0))
             
             cyc = bm.get("cycles", {})
             cycles_detected.append(cyc.get("cycles_detected", 0))
@@ -294,8 +300,9 @@ class RunLogger:
                 "max_repeat_length": max(max_repeats) if max_repeats else 0,
             },
             "cleanup": {
-                "avg_items_opened": avg(items_opened),
-                "avg_items_closed": avg(items_closed),
+                "avg_total_opens": avg(total_opens),
+                "avg_correct_close_count": avg(correct_close_counts),
+                "avg_remaining_open_count": avg(remaining_open_counts),
                 "avg_cleanup_rate": avg(cleanup_rates),
             },
             "cycles": {

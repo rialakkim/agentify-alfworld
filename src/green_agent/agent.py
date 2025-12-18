@@ -266,16 +266,31 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
 
         print("Green agent: Setting up the ALFWorld environment...")
         
+        train_eval = env_config.get("train_eval", "eval_out_of_distribution")
+        max_steps = env_config.get("max_steps", 50)
+        num_games = env_config.get("num_games", 1)
+        
+        # COVERAGE EXPANSION: Multiple configuration modes
+        coverage_mode = env_config.get("coverage_mode", "standard")
+        num_games_per_type = env_config.get("num_games_per_type", None)
+        
+        if coverage_mode == "comprehensive":
+            num_games_per_type = env_config.get("num_games_per_type", 5)
+            num_games = num_games_per_type * 6
+            print(f"COMPREHENSIVE COVERAGE: {num_games_per_type} games × 6 task types = {num_games} total test cases")
+        elif num_games_per_type:
+            num_games = num_games_per_type * 6
+            print(f"BALANCED COVERAGE: {num_games_per_type} games per task type ({num_games} total)")
+        else:
+            num_games_per_type = max(1, num_games // 6) if num_games >= 6 else 1
+            print(f"STANDARD MODE: ~{num_games_per_type} games per task type")
+        
+        # Load ALFWorld config and apply settings AFTER coverage mode adjusts num_games
         config = load_alfworld_config()
         
         if "task_types" in env_config:
             config['env']['task_types'] = env_config['task_types']
-        if "num_games" in env_config:
-            config['dataset']['num_eval_games'] = env_config['num_games']
-        
-        train_eval = env_config.get("train_eval", "eval_out_of_distribution")
-        max_steps = env_config.get("max_steps", 50)
-        num_games = env_config.get("num_games", 1)
+        config['dataset']['num_eval_games'] = num_games  # Use adjusted num_games
         
         env, alfred_env = create_alfworld_env(config, train_eval=train_eval)
         
@@ -294,7 +309,18 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
             "wins": 0,
             "total_score": 0,
             "total_steps": 0,
-            "game_results": []
+            "game_results": [],
+            "coverage_mode": coverage_mode,
+            "task_type_breakdown": {
+                f"task_{i}": {
+                    "name": TASK_TYPES[i].replace("_", " ").title(),
+                    "wins": 0,
+                    "total": 0,
+                    "scores": [],
+                    "steps": []
+                }
+                for i in range(1, 7)
+            }
         }
 
         if alfred_env.num_games == 0:
@@ -312,8 +338,15 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
         print("Green agent: Starting evaluation...")
         timestamp_started = time.time()
 
+        # Coverage Expansion: Track count per task type
+        task_type_counts = {i: 0 for i in range(1, 7)}
+
         for game_idx in range(actual_num_games):
-            print(f"\n@@@ Starting game {game_idx + 1}/{actual_num_games}")
+            # Determine which task type this game tests
+            task_type_id = ((game_idx // max(1, num_games_per_type)) % 6) + 1
+            task_type_counts[task_type_id] += 1
+            
+            print(f"\n@@@ Starting game {game_idx + 1}/{actual_num_games} (Task Type {task_type_id}: {TASK_TYPES[task_type_id]})")
             
             result = await ask_agent_to_solve(
                 white_agent_url, env, alfred_env, 
@@ -321,11 +354,29 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
                 logger=logger
             )
             
+            # Extract per-game rates from behavior metrics
+            bm = result.get("behavior_metrics", {})
+            cleanup_rate = bm.get("cleanup", {}).get("cleanup_rate", 1.0)
+            repetition_rate = bm.get("repeated_steps", {}).get("repetition_rate", 0.0)
+            cycle_rate = bm.get("cycles", {}).get("cycle_rate", 0.0)
+            
+            result["cleanup_rate"] = cleanup_rate
+            result["repetition_rate"] = repetition_rate
+            result["cycle_rate"] = cycle_rate
+            
             metrics["game_results"].append(result)
             if result["won"]:
                 metrics["wins"] += 1
             metrics["total_score"] += result["score"]
             metrics["total_steps"] += result["steps"]
+            
+            # Track per-task-type statistics for coverage analysis
+            task_key = f"task_{task_type_id}"
+            metrics["task_type_breakdown"][task_key]["total"] += 1
+            if result["won"]:
+                metrics["task_type_breakdown"][task_key]["wins"] += 1
+            metrics["task_type_breakdown"][task_key]["scores"].append(result["score"])
+            metrics["task_type_breakdown"][task_key]["steps"].append(result["steps"])
             
             # Log game result with behavior metrics
             logger.log_game(game_idx, result)
@@ -341,6 +392,36 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
         metrics["avg_score"] = metrics["total_score"] / max(1, metrics["total_games"])
         metrics["avg_steps"] = metrics["total_steps"] / max(1, metrics["total_games"])
         
+        # Calculate average rates across all games
+        cleanup_rates = [r.get("cleanup_rate", 1.0) for r in metrics["game_results"]]
+        repetition_rates = [r.get("repetition_rate", 0.0) for r in metrics["game_results"]]
+        cycle_rates = [r.get("cycle_rate", 0.0) for r in metrics["game_results"]]
+        
+        metrics["avg_cleanup_rate"] = sum(cleanup_rates) / len(cleanup_rates) if cleanup_rates else 1.0
+        metrics["avg_repetition_rate"] = sum(repetition_rates) / len(repetition_rates) if repetition_rates else 0.0
+        metrics["avg_cycle_rate"] = sum(cycle_rates) / len(cycle_rates) if cycle_rates else 0.0
+        
+        # Calculate overall white agent score (0-100) based on wins and behavior metrics
+        completion_weight = 40.0
+        cleanup_weight = 20.0
+        repetition_weight = 20.0
+        cycle_weight = 20.0
+        
+        completion_score = (metrics["success_rate"] * 100) * (completion_weight / 100)
+        cleanup_score = (metrics["avg_cleanup_rate"] * 100) * (cleanup_weight / 100)
+        repetition_score = (1.0 - metrics["avg_repetition_rate"]) * 100 * (repetition_weight / 100)
+        cycle_score = (1.0 - metrics["avg_cycle_rate"]) * 100 * (cycle_weight / 100)
+        
+        overall_white_agent_score = completion_score + cleanup_score + repetition_score + cycle_score
+        
+        metrics["overall_white_agent_score"] = round(overall_white_agent_score, 2)
+        metrics["score_breakdown"] = {
+            "completion_score": round(completion_score, 2),
+            "cleanup_score": round(cleanup_score, 2),
+            "repetition_score": round(repetition_score, 2),
+            "cycle_score": round(cycle_score, 2),
+        }
+        
         # Aggregate behavior metrics across all games
         metrics["behavior_metrics"] = RunLogger.aggregate_behavior_metrics(metrics["game_results"])
 
@@ -350,16 +431,32 @@ class AlfWorldGreenAgentExecutor(AgentExecutor):
         log_path = logger.finalize_run(metrics)
 
         success = metrics["wins"] > 0
-        result_emoji = "PASSED" if success else "FAILED"
+        result_emoji = "Completed Task" if success else "Failed to complete task"
 
         print("Green agent: Evaluation complete.")
         
-        # Build behavior metrics summary
-        bm_agg = metrics.get("behavior_metrics", {})
-        repeated = bm_agg.get("repeated_steps", {})
-        cleanup = bm_agg.get("cleanup", {})
-        cycles = bm_agg.get("cycles", {})
-        overall = bm_agg.get("overall", {})
+        # Build per-task-type breakdown
+        task_breakdown = metrics.get("task_type_breakdown", {})
+        coverage_mode_display = metrics.get("coverage_mode", "standard")
+        
+        task_type_details = "COVERAGE ANALYSIS\n"
+        task_type_details += f"   Coverage Mode: {coverage_mode_display.upper()}\n"
+        task_type_details += "══════════════════════════════════════════════════════\n"
+        
+        for task_key in [f"task_{i}" for i in range(1, 7)]:
+            stats = task_breakdown.get(task_key, {})
+            task_name = stats.get("name", "Unknown")
+            total = stats.get("total", 0)
+            wins = stats.get("wins", 0)
+            success_rate = (wins / total * 100) if total > 0 else 0
+            avg_score = sum(stats.get("scores", [0])) / max(1, len(stats.get("scores", [0])))
+            avg_steps = sum(stats.get("steps", [0])) / max(1, len(stats.get("steps", [0])))
+            
+            task_type_details += f"\n{task_name} ({task_key})\n"
+            task_type_details += f"  Test Cases: {total} games\n"
+            task_type_details += f"  Success Rate: {wins}/{total} ({success_rate:.1f}%)\n"
+            task_type_details += f"  Avg (Completion)Score: {avg_score:.2f}\n"
+            task_type_details += f"  Avg Steps: {avg_steps:.1f}\n"
         
         summary = f"""Finished ALFWorld Assessment.
 
@@ -368,34 +465,35 @@ Results Summary: {result_emoji}
 
 TASK PERFORMANCE
 - Total Games: {metrics['total_games']}
-- Wins: {metrics['wins']}
+- Wins: {metrics['wins']}/{metrics['total_games']}
 - Success Rate: {metrics['success_rate']:.2%}
 - Average Score: {metrics['avg_score']:.2f}
 - Average Steps: {metrics['avg_steps']:.1f}
 - Time Used: {metrics['time_used']:.2f}s
 
-BEHAVIOR METRICS
+{task_type_details}
+
+BEHAVIOR METRICS (AVERAGED ACROSS ALL GAMES)
 ══════════════════════════════════════════
 
 Repeated Steps:
-   - Average repetitions: {repeated.get('avg_repeated_count', 0):.1f}
-   - Repetition rate: {repeated.get('avg_repetition_rate', 0):.1%}
-   - Max consecutive repeats: {repeated.get('max_repeat_length', 0)}
+   - Average repetition rate: {metrics['avg_repetition_rate']:.1%}
 
 Cleanup Behavior:
-   - Avg items opened: {cleanup.get('avg_items_opened', 0):.1f}
-   - Avg items closed: {cleanup.get('avg_items_closed', 0):.1f}
-   - Cleanup rate: {cleanup.get('avg_cleanup_rate', 0):.1%}
+   - Average cleanup rate: {metrics['avg_cleanup_rate']:.1%}
 
 Action Cycles:
-   - Avg cycles detected: {cycles.get('avg_cycles_detected', 0):.1f}
-   - Cycle rate: {cycles.get('avg_cycle_rate', 0):.1%}
-   - Avg wasted steps: {cycles.get('avg_wasted_steps', 0):.1f}
+   - Average cycle rate: {metrics['avg_cycle_rate']:.1%}
 
-OVERALL BEHAVIOR SCORE
+OVERALL WHITE AGENT SCORE
 ══════════════════════════════════════════
-   Score: {overall.get('avg_score', 0):.1f}/100
-   Grade: {overall.get('avg_grade', 'N/A')}
+   Score: {metrics['overall_white_agent_score']:.1f}/100
+
+   Score Breakdown:
+   - Completion (Task Success): {metrics['score_breakdown']['completion_score']:.1f}/40.0
+   - Cleanup Quality: {metrics['score_breakdown']['cleanup_score']:.1f}/20.0
+   - Repetition Efficiency: {metrics['score_breakdown']['repetition_score']:.1f}/20.0
+   - Cycle Efficiency: {metrics['score_breakdown']['cycle_score']:.1f}/20.0
 
 Detailed logs saved to: {log_path}
 """
