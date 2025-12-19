@@ -77,6 +77,10 @@ def launch(
         None,
         help="Number of games per task type (overrides num_games if set)"
     ),
+    white_agent_type: str = typer.Option(
+        "standard",
+        help="Type of white agent: 'standard', 'repetitive', or 'alternating' (for testing behavior metrics)"
+    ),
 ):
     """Launch the complete evaluation workflow.
     
@@ -104,6 +108,7 @@ def launch(
             task_types=task_type_list,
             coverage_mode=coverage_mode,
             num_games_per_type=num_games_per_type,
+            white_agent_type=white_agent_type,
         )
     )
 

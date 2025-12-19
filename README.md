@@ -21,17 +21,6 @@ The system consists of three components:
 
 1. **Python 3.13**
 
-2. **ALFWorld Data**: Download the ALFWorld game files:
-   ```bash
-   pip install alfworld[full]
-   alfworld-download
-   ```
-
-3. **OpenAI API Key** (or compatible LLM provider):
-   ```bash
-   export OPENAI_API_KEY="your-api-key"
-   ```
-
 ## Installation
 
 ```bash
@@ -87,7 +76,23 @@ python main.py launch --num-games-per-type 2
 
 # Use a different data split
 python main.py launch --train-eval eval_in_distribution
+
+
 ```
+
+### Testing on 3 different agents with different trajectory to assess how the green agent assesses them
+
+```bash
+# Baseline LLM 
+python main.py launch 
+
+# Cycling (back and forth) agent
+python main.py launch --white-agent-type alternating
+
+# Repetitive agent
+python main.py launch --white-agent-type repetitive
+```
+
 
 ### Running Agents Separately
 

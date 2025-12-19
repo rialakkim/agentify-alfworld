@@ -12,6 +12,8 @@ import multiprocessing
 import json
 from src.green_agent.agent import start_green_agent
 from src.white_agent.agent import start_white_agent
+from src.white_agent.repetitive_agent import start_repetitive_white_agent
+from src.white_agent.alternating_agent import start_alternating_white_agent
 from src.my_util import my_a2a
 
 
@@ -23,6 +25,7 @@ async def launch_evaluation(
     task_types: list = None,
     coverage_mode: str = "standard",
     num_games_per_type: int = None,
+    white_agent_type: str = "standard",
 ):
     """
     Launch the complete ALFWorld evaluation workflow.
@@ -35,6 +38,7 @@ async def launch_evaluation(
         task_types: List of task type IDs to evaluate (1-6)
         coverage_mode: Coverage mode ('standard', 'balanced', 'comprehensive', 'adversarial')
         num_games_per_type: Number of games per task type (overrides num_games if set)
+        white_agent_type: Type of white agent to test ('standard' or 'repetitive')
     """
     if task_types is None:
         task_types = [1, 2, 3, 4, 5, 6]
@@ -56,9 +60,23 @@ async def launch_evaluation(
     print("\nLaunching white agent (target being tested)...")
     white_address = ("localhost", 9002)
     white_url = f"http://{white_address[0]}:{white_address[1]}"
-    p_white = multiprocessing.Process(
-        target=start_white_agent, args=("alfworld_white_agent", *white_address)
-    )
+    
+    if white_agent_type == "repetitive":
+        print("  Using: Repetitive White Agent (always picks first action)")
+        p_white = multiprocessing.Process(
+            target=start_repetitive_white_agent, args=("repetitive_white_agent", *white_address)
+        )
+    elif white_agent_type == "alternating":
+        print("  Using: Alternating White Agent (alternates between first and second actions)")
+        p_white = multiprocessing.Process(
+            target=start_alternating_white_agent, args=("alternating_white_agent", *white_address)
+        )
+    else:
+        print("  Using: Standard White Agent")
+        p_white = multiprocessing.Process(
+            target=start_white_agent, args=("alfworld_white_agent", *white_address)
+        )
+    
     p_white.start()
     assert await my_a2a.wait_agent_ready(white_url, timeout=30), "White agent not ready in time"
     print("✓ White agent is ready.")
